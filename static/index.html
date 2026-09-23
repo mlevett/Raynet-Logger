@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#123b5d">
+  <title>Message Logger</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css?v=82">
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <section id="auth-screen" class="auth-shell hidden">
+    <div class="auth-card">
+      <div class="brand-lockup">
+        <img id="auth-brand-logo" src="/static/default-brand-logo.png" alt="" class="brand-icon">
+        <div><p id="auth-brand-tagline" class="eyebrow">South East Hampshire Raynet</p><h1 id="auth-title">Message Logger</h1></div>
+      </div>
+      <p id="auth-copy" class="muted">Sign in to an existing logger.</p>
+      <form id="auth-form" class="stack">
+        <label>Username<input id="auth-username" autocomplete="username" required minlength="3"></label>
+        <label id="display-name-row" class="hidden">Display name<input id="auth-display-name" autocomplete="name"></label>
+        <label id="callsign-row" class="hidden">Callsign<input id="auth-callsign" autocapitalize="characters"></label>
+        <label>Password<input id="auth-password" type="password" autocomplete="current-password" required minlength="10"></label>
+        <button class="primary" type="submit" id="auth-submit">Sign in</button>
+      </form>
+      <p class="fine-print">Designed for trusted operational networks. Use HTTPS when exposing the service beyond a private LAN.</p>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell hidden">
+    <header class="topbar">
+      <div class="brand-lockup compact">
+        <img id="brand-logo" src="/static/default-brand-logo.png" alt="" class="brand-icon">
+        <div><p id="org-tagline" class="eyebrow">South East Hampshire Raynet</p><h1 id="org-name">Message Logger</h1></div>
+      </div>
+      <div class="topbar-controls">
+        <select id="event-select" aria-label="Current event"></select>
+        <button id="new-event-button" class="secondary permission-controller">New event</button>
+        <button id="close-event-button" class="danger-outline permission-controller" hidden>Close event</button>
+        <button id="user-button" class="user-chip" aria-haspopup="menu" aria-expanded="false"></button>
+        <button id="theme-button" class="icon-button" title="Use dark mode" aria-label="Use dark mode" aria-pressed="false">🌙</button>
+        <button id="sound-button" class="icon-button" title="Enable and test overdue alert sound" aria-pressed="false">🔕</button>
+      </div>
+    </header>
+
+    <div id="event-context" class="event-context hidden">
+      <div class="event-strip">
+        <div><span class="label">Event</span><strong id="event-name">—</strong></div>
+        <div id="event-radio" class="hidden"><span class="label">Radio</span><strong id="event-radio-summary">—</strong></div>
+        <div><span class="label">Operators online</span><span id="presence">1</span></div>
+      </div>
+      <details id="event-details" class="event-details">
+        <summary>Event details <span id="event-details-summary" class="muted">Notes, locations and contacts</span></summary>
+        <div id="event-details-content" class="event-details-content"></div>
+        <button id="edit-event-details" class="secondary permission-controller" type="button">Edit event details</button>
+      </details>
+    </div>
+
+    <nav class="tabs" aria-label="Logger sections">
+      <button data-tab="messages" class="active"><span>Message Log</span></button>
+      <button data-tab="ops"><span>Operators</span></button>
+      <button data-tab="audit" class="permission-controller">Audit</button>
+      <button id="export-button" data-tab="export"><span>Export</span></button>
+    </nav>
+
+    <main>
+      <div id="overdue-panel" class="overdue-panel hidden" aria-live="polite">
+        <div class="overdue-panel-heading"><strong>Overdue welfare checks</strong><span id="overdue-summary" class="muted"></span></div>
+        <div id="overdue-quick-list" class="overdue-quick-list"></div>
+      </div>
+
+      <section id="empty-event" class="empty-state hidden">
+        <h2>No event selected</h2>
+        <p>Create an event to open a fresh operational log.</p>
+        <button class="primary permission-controller" id="empty-new-event">Create event</button>
+      </section>
+
+      <section id="messages-tab" class="tab-panel">
+        <form id="message-form" class="message-entry permission-write">
+          <div class="field callsign-field">
+            <label for="message-callsign">Callsign / tactical call</label>
+            <div class="callsign-combobox">
+              <input id="message-callsign" required maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false"
+                     role="combobox" aria-autocomplete="list" aria-controls="callsign-suggestions" aria-expanded="false"
+                     placeholder="Type either callsign or tactical call…">
+              <div id="callsign-suggestions" class="callsign-suggestions hidden" role="listbox" aria-label="Callsign and tactical call suggestions"></div>
+            </div>
+            <span class="field-hint">Each result shows both identities. Use ↑ ↓ then Enter.</span>
+          </div>
+          <div class="field direction-field"><span class="field-label">Direction</span><div class="segmented" id="direction-picker"><button type="button" data-value="received" class="selected" aria-keyshortcuts="Alt+R">Received <kbd>Alt+R</kbd></button><button type="button" data-value="sent" aria-keyshortcuts="Alt+S">Sent <kbd>Alt+S</kbd></button><button type="button" data-value="info" aria-keyshortcuts="Alt+I">Info <kbd>Alt+I</kbd></button></div></div>
+          <div class="field priority-field"><span class="field-label">Priority</span><div class="segmented priority-picker" id="priority-picker"><button type="button" data-value="routine" class="selected" aria-keyshortcuts="Alt+1">Routine <kbd>Alt+1</kbd></button><button type="button" data-value="priority" aria-keyshortcuts="Alt+2">Priority <kbd>Alt+2</kbd></button><button type="button" data-value="immediate" aria-keyshortcuts="Alt+3">Immediate <kbd>Alt+3</kbd></button></div><input id="message-priority" type="hidden" value="routine"></div>
+          <div class="field message-field"><label>Message<textarea id="message-text" required maxlength="4000" rows="2" placeholder="Enter message exactly as passed…"></textarea></label></div>
+          <div class="message-actions"><button class="primary submit-message" type="submit">Log message <span class="shortcut">Ctrl↵</span></button></div>
+        </form>
+
+        <div class="toolbar">
+          <input id="message-search" type="search" placeholder="Search messages, callsigns or operators…">
+          <select id="direction-filter"><option value="all">All traffic</option><option value="received">Received</option><option value="sent">Sent</option><option value="info">Info</option></select>
+          <span id="message-total" class="muted"></span>
+        </div>
+
+        <div class="table-wrap">
+          <table class="log-table">
+            <thead><tr><th>#</th><th>Time<br>Date</th><th>Priority</th><th>Callsign</th><th>Tactical call</th><th>Direction</th><th>Message</th><th>Operator</th><th class="permission-controller">Actions</th></tr></thead>
+            <tbody id="message-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="ops-tab" class="tab-panel hidden">
+        <div class="section-head"><div><p class="eyebrow">Event team, identities and welfare checks</p><h2>Operators and stations</h2></div><div class="section-actions permission-controller"><button id="add-event-user-button" class="secondary">Assign user</button><button id="add-station-button" class="primary">Add operator</button></div></div>
+        <div id="ops-summary" class="summary-cards"></div>
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead><tr><th>Status</th><th>Name</th><th>Callsign</th><th>Tactical call</th><th>Duty</th><th>Check interval</th><th>Last heard</th><th>Next due</th><th>Notes</th><th>Actions</th></tr></thead>
+            <tbody id="station-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="audit-tab" class="tab-panel hidden permission-controller">
+        <div class="section-head"><div><p class="eyebrow">Append-only accountability trail</p><h2>Audit history</h2></div><button id="refresh-audit" class="secondary">Refresh</button></div>
+        <div class="table-wrap"><table class="audit-table"><thead><tr><th>Time<br>Date</th><th>Name<br><span>Callsign / tactical call</span></th><th>Action</th><th>Record</th><th>Change details</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
+      </section>
+
+      <section id="export-tab" class="tab-panel hidden">
+        <div class="section-head"><div><p class="eyebrow">Event records and reporting</p><h2>Export event</h2><p class="muted">Choose the records and file type you need. PDF reports include the configured logo and branding.</p></div></div>
+        <form id="export-form" class="export-workspace">
+          <fieldset><legend>What to export</legend>
+            <label class="export-choice"><input type="checkbox" name="section" value="summary" checked><span><strong>Event summary</strong><small>Event dates and optional notes, locations and contacts</small></span></label>
+            <label class="export-choice"><input type="checkbox" name="section" value="messages" checked><span><strong>Message log</strong><small>Traffic, priorities, identities and corrections</small></span></label>
+            <label class="export-choice"><input type="checkbox" name="section" value="operators" checked><span><strong>Operators and stations</strong><small>Duty state, welfare interval and last-heard details</small></span></label>
+            <label class="export-choice permission-controller"><input type="checkbox" name="section" value="audit" checked><span><strong>Audit trail</strong><small>Accountability history and recorded changes</small></span></label>
+          </fieldset>
+          <fieldset><legend>File type</legend>
+            <label class="export-choice"><input type="radio" name="format" value="pdf" checked><span><strong>Branded PDF report</strong><small>Print-ready, paginated report with logo, header and page numbers</small></span></label>
+            <label class="export-choice"><input type="radio" name="format" value="csv"><span><strong>CSV spreadsheet</strong><small>Sectioned data for Excel or other spreadsheet software</small></span></label>
+            <label class="export-choice"><input type="radio" name="format" value="txt"><span><strong>Plain-text record</strong><small>Portable human-readable operational record</small></span></label>
+            <label class="export-choice"><input type="radio" name="format" value="json"><span><strong>JSON backup</strong><small>Structured data for archiving or system integration</small></span></label>
+          </fieldset>
+          <div class="export-actions"><span id="export-selection-summary" class="muted"></span><button class="primary" type="submit">Download export</button></div>
+        </form>
+      </section>
+
+      <section id="admin-tab" class="tab-panel hidden permission-admin">
+        <div class="section-head"><div><p class="eyebrow">Appearance</p><h2>Branding</h2></div></div>
+        <form id="branding-form" class="branding-settings">
+          <div class="branding-fields"><label>Application name<input id="branding-name" required maxlength="100"></label><label>Header strapline<input id="branding-tagline" maxlength="120"></label><label>Custom logo<input id="branding-logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><span class="field-hint">PNG, JPEG, WebP or GIF; maximum 1 MB.</span></label></div>
+          <div class="branding-preview"><img id="branding-logo-preview" src="/static/default-brand-logo.png" alt="Current logo preview"><button id="branding-remove-logo" type="button" class="secondary">Use default logo</button><button type="submit" class="primary">Save branding</button></div>
+        </form>
+        <div class="section-head"><div><p class="eyebrow">System access</p><h2>Users and roles</h2></div><button id="add-user-button" class="primary">Add user</button></div>
+        <div class="role-key"><span><strong>Admin</strong> everything</span><span><strong>Controller</strong> events, stations and corrections</span><span><strong>Operator</strong> log traffic and mark heard</span><span><strong>Viewer</strong> read only</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Callsign</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody id="user-rows"></tbody></table></div>
+        <div class="section-head"><div><p class="eyebrow">Control settings</p><h2>Control callsign presets</h2></div><button id="add-control-callsign" class="primary">Add callsign</button></div>
+        <div class="table-wrap"><table><thead><tr><th>Callsign</th><th>Actions</th></tr></thead><tbody id="control-callsign-list"></tbody></table></div>
+        <div class="section-head"><div><p class="eyebrow">Data management</p><h2>Events</h2><p class="muted">Permanently remove test or unwanted events and all records belonging to them.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Event</th><th>Status</th><th>Started</th><th>Messages</th><th>Actions</th></tr></thead><tbody id="admin-event-rows"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="modal"><form method="dialog" id="modal-form"><div id="modal-body"></div><div class="dialog-actions"><button type="button" id="modal-cancel" class="secondary">Cancel</button><button value="confirm" id="modal-confirm" class="primary">Confirm</button></div></form></dialog>
+  <div id="user-menu" class="popover hidden" role="menu"><button id="menu-administration-button" class="permission-admin" role="menuitem">⚙ Administration</button><button id="about-button" role="menuitem">About</button><button id="sign-out-button" role="menuitem">Sign out</button></div>
+  <script src="/static/app.js?v=84" defer></script>
+</body>
+</html>

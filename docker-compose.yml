@@ -1,0 +1,15 @@
+services:
+  raynet-logger:
+    build: .
+    container_name: raynet-logger
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      RAYNET_ORG_NAME: "South East Hampshire RAYNET"
+      RAYNET_TIMEZONE: "Europe/London"
+      RAYNET_BACKUP_INTERVAL_SECONDS: "300"
+      RAYNET_BACKUP_RETENTION: "48"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
