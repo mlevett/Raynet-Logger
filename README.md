@@ -33,25 +33,6 @@ A self-hosted, installable web application for RAYNET message handling and opera
 - Responsive, installable PWA interface
 - Docker and one-click-ish Windows/Linux/macOS launch scripts
 
-## Workbook behaviours carried across
-
-The supplied `LoggingV5v5b.xlsm` was inspected, including its VBA modules. The app retains the useful workflow from the workbook:
-
-| Workbook behaviour | App equivalent |
-|---|---|
-| Event name requested at startup | Create/select persistent events |
-| DTG and time inserted automatically | UTC timestamp stored, Europe/London DTG displayed |
-| `s`, `r`, `i` traffic categories | Received, Sent and Info controls, plus Alt+R/S/I |
-| Callsign checked against Ops Normal | Operators list with unified callsign and tactical-call validation |
-| Message entry updates last heard | Received traffic updates the matching station |
-| Completed rows locked | Submitted records are immutable to operators; controllers make versioned corrections |
-| Text log written line by line | Every message is committed transactionally to SQLite |
-| Periodic workbook save | Immediate commits plus periodic consistent database snapshots |
-| Warning sound for overdue checks | Browser alert tone enabled by default, with a mute control |
-| Clear-all buttons | Close an event and start another, preserving the evidence trail |
-
-The workbook's hard-coded Windows paths and hard-coded encryption key were deliberately not copied. They would provide a padlock-shaped sticker rather than meaningful protection.
-
 ## Quick start with Docker
 
 1. Install Docker Desktop or Docker Engine.
