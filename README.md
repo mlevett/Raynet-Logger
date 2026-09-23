@@ -101,6 +101,9 @@ python tools/backup_now.py
 - `Alt+R`: Received
 - `Alt+S`: Sent
 - `Alt+I`: Info
+- `Alt+1`: Routine priority
+- `Alt+2`: Priority traffic
+- `Alt+3`: Immediate priority
 
 ## Running the automated test
 
