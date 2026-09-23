@@ -130,4 +130,6 @@ pytest -q
 
 ## License
 
-This project is released under the GNU General Public License v3.0. See `LICENSE` for the full terms.
+This project is released under the **GNU Affero General Public License version 3 or later (AGPL-3.0-or-later)**. See `LICENSE` for the full terms.
+
+The complete corresponding source for the running application is available at [github.com/mlevett/Raynet-Logger](https://github.com/mlevett/Raynet-Logger).

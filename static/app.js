@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Mathew Levett
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 'use strict';
 
 const SOUND_PREF_KEY = 'raynet-alert-sound-v2';
@@ -1398,7 +1401,12 @@ $('#about-button').addEventListener('click', async () => {
     <div class="about-details">
       <img src="/static/default-brand-logo.png" alt="" class="about-logo">
       <p><strong>Message Logger</strong> is an operational message, operator and welfare-check logging application for RAYNET deployments.</p>
-      <dl><div><dt>Version</dt><dd>${esc(state.bootstrap?.version || '1.0')}</dd></div><div><dt>Author</dt><dd>Mathew Levett (M0NFZ)</dd></div></dl>
+      <dl>
+        <div><dt>Version</dt><dd>${esc(state.bootstrap?.version || '1.0')}</dd></div>
+        <div><dt>Author</dt><dd>Mathew Levett (M0NFZ)</dd></div>
+        <div><dt>Licence</dt><dd>GNU AGPLv3 or later</dd></div>
+      </dl>
+      <p><a href="https://github.com/mlevett/Raynet-Logger" target="_blank" rel="noopener noreferrer">View or download the complete source code</a></p>
     </div>`, 'Close');
   $('#modal-cancel').hidden = false;
 });

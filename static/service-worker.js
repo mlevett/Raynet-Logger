@@ -1,5 +1,8 @@
-const CACHE = 'raynet-logger-shell-v90';
-const SHELL = ['/', '/static/styles.css?v=82', '/static/app.js?v=84', '/static/icon.svg', '/static/default-brand-logo.png', '/manifest.webmanifest'];
+// Copyright (C) 2026 Mathew Levett
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+const CACHE = 'raynet-logger-shell-v91';
+const SHELL = ['/', '/static/styles.css?v=82', '/static/app.js?v=85', '/static/icon.svg', '/static/default-brand-logo.png', '/manifest.webmanifest'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))));
 self.addEventListener('fetch', event => {
