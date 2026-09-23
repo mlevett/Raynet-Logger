@@ -69,7 +69,7 @@ Other devices on the same network can connect to `http://SERVER-IP:8080`.
 
 ## Downloading a test copy
 
-On GitHub, open **Releases** and download the latest source ZIP, or use **Code → Download ZIP** for the current development version. Extract it before running either startup script.
+Download the stable [version 1.0 source ZIP](https://github.com/mlevett/Raynet-Logger/archive/refs/tags/v1.0.zip), or use **Code → Download ZIP** on GitHub for the current development version. Extract it before running either startup script.
 
 ## Windows without Docker
 
