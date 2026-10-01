@@ -1,12 +1,25 @@
 # RAYNET Message Logger
 
-**Version 1.0 — public testing release**
+**Version 2.0 — distributed-sync development branch**
 
 Created by **Mathew Levett (M0NFZ)** for South East Hampshire RAYNET.
 
 This release is ready for user testing, but should be evaluated on exercises before it is relied upon for live operational work. Please report faults and usability feedback through the repository's GitHub Issues page. Never publish a live database with personal or operational information in an issue.
 
 A self-hosted, installable web application for RAYNET message handling and operator welfare checks. It runs in a browser, so the same build works on Windows, macOS, Linux, iPadOS and Android. Multiple operators can use one event at the same time over a LAN, Wi-Fi hotspot or VPN.
+
+Version 2 adds an offline-first distributed journal. Each installation remains usable during an outage, then exchanges missing event, station and message operations with configured hub or field peers when connectivity returns. Version 1.0 remains the stable testing release on the `main` branch and `v1.0` tag.
+
+## Version 2 distributed operation
+
+- Every installation has a persistent node identity and every replicated operational record has a global UUID.
+- Event, operator/station and message changes are retained in an append-only operation journal.
+- Hub-and-spoke and direct field-node links use the same peer protocol, so a hub is useful but not mandatory.
+- Vector clocks transfer only missing operations and make replay safe after extended outages.
+- Concurrent changes use a deterministic last-writer rule based on timestamp, node identity and origin sequence; every operation remains in the journal.
+- Local browser sessions still receive low-latency updates through WebSockets.
+
+To enable synchronisation, configure the same strong random `RAYNET_SYNC_SECRET` on nodes that are allowed to trust each other, give each node a descriptive `RAYNET_NODE_NAME`, restart the application, then add peer URLs under **Administration → Node synchronisation**. Use HTTPS, a VPN or a physically trusted private network; the shared secret authenticates nodes but plain HTTP does not encrypt operational records.
 
 ## What version 1.0 includes
 

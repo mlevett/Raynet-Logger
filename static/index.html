@@ -159,12 +159,15 @@
         <div class="table-wrap"><table><thead><tr><th>Callsign</th><th>Actions</th></tr></thead><tbody id="control-callsign-list"></tbody></table></div>
         <div class="section-head"><div><p class="eyebrow">Data management</p><h2>Events</h2><p class="muted">Permanently remove test or unwanted events and all records belonging to them.</p></div></div>
         <div class="table-wrap"><table><thead><tr><th>Event</th><th>Status</th><th>Started</th><th>Messages</th><th>Actions</th></tr></thead><tbody id="admin-event-rows"></tbody></table></div>
+        <div class="section-head"><div><p class="eyebrow">Version 2 distributed operation</p><h2>Node synchronisation</h2><p class="muted">This installation continues working offline and exchanges its operational journal with configured hub or field nodes when a route is available.</p></div><button id="add-sync-peer" class="primary">Add peer</button></div>
+        <div id="sync-node-summary" class="role-key"></div>
+        <div class="table-wrap"><table><thead><tr><th>Peer</th><th>Address</th><th>Last sync</th><th>State</th><th>Actions</th></tr></thead><tbody id="sync-peer-rows"></tbody></table></div>
       </section>
     </main>
   </div>
 
   <dialog id="modal"><form method="dialog" id="modal-form"><div id="modal-body"></div><div class="dialog-actions"><button type="button" id="modal-cancel" class="secondary">Cancel</button><button value="confirm" id="modal-confirm" class="primary">Confirm</button></div></form></dialog>
   <div id="user-menu" class="popover hidden" role="menu"><button id="menu-administration-button" class="permission-admin" role="menuitem">⚙ Administration</button><button id="about-button" role="menuitem">About</button><button id="sign-out-button" role="menuitem">Sign out</button></div>
-  <script src="static/app.js?v=86" defer></script>
+  <script src="static/app.js?v=87" defer></script>
 </body>
 </html>

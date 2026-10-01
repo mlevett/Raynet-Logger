@@ -34,18 +34,65 @@ def test_frontend_assets_support_subfolder_mount(tmp_path):
     with TestClient(parent) as client:
         page = client.get("/logger/")
         assert page.status_code == 200
-        assert 'src="static/app.js?v=86"' in page.text
+        assert 'src="static/app.js?v=87"' in page.text
         assert 'href="static/styles.css?v=82"' in page.text
         assert 'href="manifest.webmanifest"' in page.text
-        assert client.get("/logger/static/app.js?v=86").status_code == 200
+        assert client.get("/logger/static/app.js?v=87").status_code == 200
         assert client.get("/logger/static/styles.css?v=82").status_code == 200
         manifest = client.get("/logger/manifest.webmanifest").json()
         assert manifest["start_url"] == "./"
         assert manifest["scope"] == "./"
         assert manifest["icons"][0]["src"] == "static/icon.svg"
-        worker = client.get("/logger/service-worker.js?v=73")
+        worker = client.get("/logger/service-worker.js?v=74")
         assert worker.status_code == 200
         assert "self.registration.scope" in worker.text
+
+
+def test_distributed_sync_accepts_offline_journal_and_deduplicates(tmp_path):
+    os.environ["RAYNET_SYNC_SECRET"] = "test-grid-secret"
+    with make_client(tmp_path) as client:
+        client.post("/api/setup", json={
+            "username": "control", "display_name": "Control", "callsign": "M0TST", "password": "correct-horse-battery"
+        })
+        remote_event = {
+            "op_id": "f22b1981-c167-4ca7-b327-fd4780722611",
+            "origin_node_id": "remote-node-0001",
+            "origin_seq": 1,
+            "event_uid": "886b5158-9fd7-4d75-a7ec-9fdf43681ea8",
+            "entity_type": "event",
+            "entity_uid": "886b5158-9fd7-4d75-a7ec-9fdf43681ea8",
+            "action": "create",
+            "payload": {
+                "name": "Offline Field Event", "location": "", "control_callsign": "CONTROL",
+                "event_notes": "Created while isolated", "location_details": "", "phone_numbers": "",
+                "event_contacts": "", "radio_frequency": "145.500 MHz", "ctcss_tones": "",
+                "radio_mode": "FM", "talk_groups": "", "status": "active",
+                "created_at": "2026-10-01T10:00:00+00:00", "started_at": "2026-10-01T10:00:00+00:00", "closed_at": None,
+            },
+            "actor_name": "Field Control", "actor_callsign": "M0FLD", "created_at": "2026-10-01T10:00:00+00:00",
+        }
+        remote_message = {
+            "op_id": "29f5d12c-d1d1-419c-aee4-f79e10b9b58c", "origin_node_id": "remote-node-0001", "origin_seq": 2,
+            "event_uid": remote_event["event_uid"], "entity_type": "message", "entity_uid": "47507f6a-a8f2-4212-a0cb-186c39f5aa91", "action": "create",
+            "payload": {"sequence": 1, "dtg": "2026-10-01T10:01:00+00:00", "callsign": "M0ABC", "station_callsign": "M0ABC",
+                        "tactical_call": "CP1", "address_mode": "both", "message": "Created during outage", "direction": "received",
+                        "priority": "routine", "operator_control_call": "CONTROL", "version": 1, "voided": 0,
+                        "created_at": "2026-10-01T10:01:00+00:00", "updated_at": "2026-10-01T10:01:00+00:00"},
+            "actor_name": "Field Control", "actor_callsign": "M0FLD", "created_at": "2026-10-01T10:01:00+00:00",
+        }
+        headers = {"X-Raynet-Sync-Key": "test-grid-secret"}
+        # A message may arrive before its parent event; the receiver retries dependencies.
+        first = client.post("/api/sync/exchange", headers=headers, json={"node_id": "remote-node-0001", "clock": {}, "operations": [remote_message, remote_event]})
+        assert first.status_code == 200
+        assert first.json()["operations_applied"] == 2
+        duplicate = client.post("/api/sync/exchange", headers=headers, json={"node_id": "remote-node-0001", "clock": {}, "operations": [remote_message, remote_event]})
+        assert duplicate.status_code == 200
+        assert duplicate.json()["operations_applied"] == 0
+        events = client.get("/api/events").json()
+        assert [event["name"] for event in events].count("Offline Field Event") == 1
+        synced_event = next(event for event in events if event["name"] == "Offline Field Event")
+        assert client.get(f"/api/events/{synced_event['id']}/snapshot").json()["messages"][0]["message"] == "Created during outage"
+        assert client.post("/api/sync/exchange", headers={"X-Raynet-Sync-Key": "wrong"}, json={"node_id": "remote-node-0002", "clock": {}, "operations": []}).status_code == 401
 
 
 def test_operational_flow(tmp_path):

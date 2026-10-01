@@ -15,6 +15,9 @@ import os
 import secrets
 import shutil
 import sqlite3
+import urllib.error
+import urllib.request
+import uuid
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +39,8 @@ LOCAL_TIMEZONE = os.getenv("RAYNET_TIMEZONE", "Europe/London")
 SESSION_HOURS = int(os.getenv("RAYNET_SESSION_HOURS", "12"))
 BACKUP_INTERVAL_SECONDS = int(os.getenv("RAYNET_BACKUP_INTERVAL_SECONDS", "300"))
 BACKUP_RETENTION = int(os.getenv("RAYNET_BACKUP_RETENTION", "48"))
+SYNC_SECRET = os.getenv("RAYNET_SYNC_SECRET", "")
+SYNC_INTERVAL_SECONDS = int(os.getenv("RAYNET_SYNC_INTERVAL_SECONDS", "30"))
 COOKIE_NAME = "raynet_session"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -208,11 +213,46 @@ def init_db() -> None:
         created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS sync_node (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        node_id TEXT NOT NULL UNIQUE,
+        node_name TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_peers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL UNIQUE,
+        active INTEGER NOT NULL DEFAULT 1,
+        last_sync_at TEXT,
+        last_error TEXT NOT NULL DEFAULT '',
+        peer_clock_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_operations (
+        op_id TEXT PRIMARY KEY,
+        origin_node_id TEXT NOT NULL,
+        origin_seq INTEGER NOT NULL,
+        event_uid TEXT,
+        entity_type TEXT NOT NULL,
+        entity_uid TEXT NOT NULL,
+        action TEXT NOT NULL,
+        payload_json TEXT,
+        actor_name TEXT NOT NULL DEFAULT '',
+        actor_callsign TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        UNIQUE(origin_node_id, origin_seq)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_event_sequence ON messages(event_id, sequence DESC);
     CREATE INDEX IF NOT EXISTS idx_stations_event ON stations(event_id);
     CREATE INDEX IF NOT EXISTS idx_event_users_event ON event_users(event_id);
     CREATE INDEX IF NOT EXISTS idx_audit_event_created ON audit_log(event_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_hash ON sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_sync_origin_sequence ON sync_operations(origin_node_id, origin_seq);
     """
     with db() as conn:
         conn.executescript(schema)
@@ -224,10 +264,14 @@ def init_db() -> None:
         if "control_call" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN control_call TEXT NOT NULL DEFAULT 'CONTROL'")
         event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(events)").fetchall()}
+        if "sync_uid" not in event_columns:
+            conn.execute("ALTER TABLE events ADD COLUMN sync_uid TEXT")
         for column in ("event_notes", "location_details", "phone_numbers", "event_contacts", "radio_frequency", "ctcss_tones", "radio_mode", "talk_groups"):
             if column not in event_columns:
                 conn.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         station_columns = {row["name"] for row in conn.execute("PRAGMA table_info(stations)").fetchall()}
+        if "sync_uid" not in station_columns:
+            conn.execute("ALTER TABLE stations ADD COLUMN sync_uid TEXT")
         if "name" not in station_columns:
             conn.execute("ALTER TABLE stations ADD COLUMN name TEXT NOT NULL DEFAULT ''")
         if "in_control" not in station_columns:
@@ -236,6 +280,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE stations ADD COLUMN duty_status TEXT NOT NULL DEFAULT 'on_duty'")
             conn.execute("UPDATE stations SET duty_status=CASE WHEN on_duty=1 THEN 'on_duty' ELSE 'off_duty' END")
         message_columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "sync_uid" not in message_columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN sync_uid TEXT")
         migrations = {
             "station_id": "ALTER TABLE messages ADD COLUMN station_id INTEGER REFERENCES stations(id) ON DELETE SET NULL",
             "station_callsign": "ALTER TABLE messages ADD COLUMN station_callsign TEXT NOT NULL DEFAULT ''",
@@ -247,6 +293,20 @@ def init_db() -> None:
             if column not in message_columns:
                 conn.execute(statement)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_station ON messages(station_id)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_sync_uid ON events(sync_uid)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_stations_sync_uid ON stations(sync_uid)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_sync_uid ON messages(sync_uid)")
+        for table in ("events", "stations", "messages"):
+            rows = conn.execute(f"SELECT id FROM {table} WHERE sync_uid IS NULL OR sync_uid='' ").fetchall()
+            for row in rows:
+                conn.execute(f"UPDATE {table} SET sync_uid=? WHERE id=?", (str(uuid.uuid4()), row["id"]))
+        conn.execute(
+            "INSERT OR IGNORE INTO sync_node(singleton,node_id,node_name,created_at) VALUES(1,?,?,?)",
+            (str(uuid.uuid4()), os.getenv("RAYNET_NODE_NAME", os.getenv("COMPUTERNAME", "Message Logger node")), iso_now()),
+        )
+        peer_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sync_peers)").fetchall()}
+        if "peer_clock_json" not in peer_columns:
+            conn.execute("ALTER TABLE sync_peers ADD COLUMN peer_clock_json TEXT NOT NULL DEFAULT '{}'")
         # Preserve old logs while enriching them with the best matching operator identity.
         conn.execute(
             """UPDATE messages
@@ -313,6 +373,129 @@ def audit(
             iso_now(),
         ),
     )
+    if entity_type in {"event", "station", "message"} and entity_id is not None:
+        table = {"event": "events", "station": "stations", "message": "messages"}[entity_type]
+        row = conn.execute(f"SELECT sync_uid FROM {table} WHERE id=?", (entity_id,)).fetchone()
+        entity_uid = row["sync_uid"] if row and row["sync_uid"] else str(uuid.uuid4())
+        if row and not row["sync_uid"]:
+            conn.execute(f"UPDATE {table} SET sync_uid=? WHERE id=?", (entity_uid, entity_id))
+        event_uid = None
+        if entity_type == "event":
+            event_uid = entity_uid
+        elif event_id is not None:
+            event_row = conn.execute("SELECT sync_uid FROM events WHERE id=?", (event_id,)).fetchone()
+            event_uid = event_row["sync_uid"] if event_row else None
+        # Event deletion occurs after the row has gone, so retain its UUID from the audit snapshot.
+        if not row and isinstance(before, dict):
+            entity_uid = before.get("sync_uid") or entity_uid
+            if entity_type == "event":
+                event_uid = entity_uid
+        node = conn.execute("SELECT node_id FROM sync_node WHERE singleton=1").fetchone()
+        if node and entity_uid:
+            actor = conn.execute("SELECT display_name,callsign FROM users WHERE id=?", (user_id,)).fetchone() if user_id else None
+            next_seq = conn.execute("SELECT COALESCE(MAX(origin_seq),0)+1 FROM sync_operations WHERE origin_node_id=?", (node["node_id"],)).fetchone()[0]
+            payload = after if action not in {"delete"} else before
+            conn.execute(
+                """INSERT INTO sync_operations(op_id,origin_node_id,origin_seq,event_uid,entity_type,entity_uid,action,payload_json,actor_name,actor_callsign,created_at,received_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (str(uuid.uuid4()), node["node_id"], next_seq, event_uid, entity_type, entity_uid, action,
+                 json.dumps(payload, separators=(",", ":"), default=str) if payload is not None else None,
+                 actor["display_name"] if actor else "System", actor["callsign"] if actor else "", iso_now(), iso_now()),
+            )
+
+
+def sync_clock(conn: sqlite3.Connection) -> dict[str, int]:
+    return {row["origin_node_id"]: row["seq"] for row in conn.execute(
+        "SELECT origin_node_id,MAX(origin_seq) AS seq FROM sync_operations GROUP BY origin_node_id"
+    ).fetchall()}
+
+
+def sync_public_status(conn: sqlite3.Connection) -> dict[str, Any]:
+    node = dict(conn.execute("SELECT node_id,node_name,created_at FROM sync_node WHERE singleton=1").fetchone())
+    peers = [dict(row) for row in conn.execute("SELECT id,name,base_url,active,last_sync_at,last_error,created_at FROM sync_peers ORDER BY name").fetchall()]
+    return {**node, "enabled": bool(SYNC_SECRET), "interval_seconds": SYNC_INTERVAL_SECONDS, "clock": sync_clock(conn), "peers": peers}
+
+
+def ensure_sync_actor(conn: sqlite3.Connection, origin_node_id: str, name: str, callsign: str) -> int:
+    username = f"sync-{origin_node_id[:12]}-{hashlib.sha256((name + callsign).encode()).hexdigest()[:10]}"
+    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if row:
+        return row["id"]
+    salt, digest = hash_password(secrets.token_urlsafe(32))
+    cur = conn.execute(
+        """INSERT INTO users(username,display_name,callsign,password_salt,password_hash,role,active,in_control,control_call,created_at)
+           VALUES(?,?,?,?,?,'viewer',0,0,'CONTROL',?)""",
+        (username, name or "Remote operator", callsign, salt, digest, iso_now()),
+    )
+    return cur.lastrowid
+
+
+SYNC_FIELDS = {
+    "event": ("name", "location", "control_callsign", "event_notes", "location_details", "phone_numbers", "event_contacts", "radio_frequency", "ctcss_tones", "radio_mode", "talk_groups", "status", "created_at", "started_at", "closed_at"),
+    "station": ("name", "callsign", "tactical_call", "check_interval_minutes", "on_duty", "duty_status", "in_control", "last_heard_at", "notes", "created_at", "updated_at"),
+    "message": ("sequence", "dtg", "callsign", "station_callsign", "tactical_call", "address_mode", "message", "direction", "priority", "operator_control_call", "version", "voided", "created_at", "updated_at"),
+}
+
+
+def apply_sync_operation(conn: sqlite3.Connection, operation: dict[str, Any]) -> bool:
+    if conn.execute("SELECT 1 FROM sync_operations WHERE op_id=?", (operation["op_id"],)).fetchone():
+        return False
+    entity_type = operation["entity_type"]
+    if entity_type not in SYNC_FIELDS:
+        return False
+    payload = operation.get("payload") or {}
+    latest = conn.execute(
+        "SELECT created_at,origin_node_id,origin_seq FROM sync_operations WHERE entity_type=? AND entity_uid=? ORDER BY created_at DESC,origin_node_id DESC,origin_seq DESC LIMIT 1",
+        (entity_type, operation["entity_uid"]),
+    ).fetchone()
+    incoming_order = (operation["created_at"], operation["origin_node_id"], int(operation["origin_seq"]))
+    if latest and incoming_order <= (latest["created_at"], latest["origin_node_id"], int(latest["origin_seq"])):
+        conn.execute(
+            """INSERT INTO sync_operations(op_id,origin_node_id,origin_seq,event_uid,entity_type,entity_uid,action,payload_json,actor_name,actor_callsign,created_at,received_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (operation["op_id"], operation["origin_node_id"], operation["origin_seq"], operation.get("event_uid"), entity_type,
+             operation["entity_uid"], operation["action"], json.dumps(payload, separators=(",", ":")), operation.get("actor_name", ""),
+             operation.get("actor_callsign", ""), operation["created_at"], iso_now()),
+        )
+        return True
+    table = {"event": "events", "station": "stations", "message": "messages"}[entity_type]
+    existing = conn.execute(f"SELECT * FROM {table} WHERE sync_uid=?", (operation["entity_uid"],)).fetchone()
+    if operation["action"] == "delete":
+        if existing:
+            conn.execute(f"DELETE FROM {table} WHERE id=?", (existing["id"],))
+    else:
+        event_id = None
+        if entity_type != "event":
+            event = conn.execute("SELECT id FROM events WHERE sync_uid=?", (operation.get("event_uid"),)).fetchone()
+            if not event:
+                raise ValueError("Parent event has not arrived yet")
+            event_id = event["id"]
+        fields = [field for field in SYNC_FIELDS[entity_type] if field in payload]
+        values = [payload[field] for field in fields]
+        if existing:
+            if fields:
+                conn.execute(f"UPDATE {table} SET {','.join(f'{field}=?' for field in fields)} WHERE id=?", (*values, existing["id"]))
+        elif entity_type == "event":
+            actor_id = ensure_sync_actor(conn, operation["origin_node_id"], operation.get("actor_name", ""), operation.get("actor_callsign", ""))
+            conn.execute(f"INSERT INTO events({','.join(fields)},created_by,sync_uid) VALUES({','.join('?' for _ in fields)},?,?)", (*values, actor_id, operation["entity_uid"]))
+        elif entity_type == "station":
+            conn.execute(f"INSERT INTO stations(event_id,{','.join(fields)},sync_uid) VALUES(?,{','.join('?' for _ in fields)},?)", (event_id, *values, operation["entity_uid"]))
+        else:
+            actor_id = ensure_sync_actor(conn, operation["origin_node_id"], operation.get("actor_name", ""), operation.get("actor_callsign", ""))
+            station = conn.execute("SELECT id FROM stations WHERE event_id=? AND UPPER(callsign)=UPPER(?)", (event_id, payload.get("station_callsign", ""))).fetchone()
+            if conn.execute("SELECT 1 FROM messages WHERE event_id=? AND sequence=?", (event_id, payload.get("sequence"))).fetchone():
+                index = fields.index("sequence") if "sequence" in fields else -1
+                if index >= 0:
+                    values[index] = conn.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM messages WHERE event_id=?", (event_id,)).fetchone()[0]
+            conn.execute(f"INSERT INTO messages(event_id,{','.join(fields)},station_id,operator_id,sync_uid) VALUES(?,{','.join('?' for _ in fields)},?,?,?)", (event_id, *values, station["id"] if station else None, actor_id, operation["entity_uid"]))
+    conn.execute(
+        """INSERT INTO sync_operations(op_id,origin_node_id,origin_seq,event_uid,entity_type,entity_uid,action,payload_json,actor_name,actor_callsign,created_at,received_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (operation["op_id"], operation["origin_node_id"], operation["origin_seq"], operation.get("event_uid"), entity_type,
+         operation["entity_uid"], operation["action"], json.dumps(payload, separators=(",", ":")), operation.get("actor_name", ""),
+         operation.get("actor_callsign", ""), operation["created_at"], iso_now()),
+    )
+    return True
 
 
 class SetupIn(BaseModel):
@@ -477,6 +660,18 @@ class VoidIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+class SyncPeerIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    base_url: str = Field(min_length=8, max_length=500)
+    active: bool = True
+
+
+class SyncExchangeIn(BaseModel):
+    node_id: str = Field(min_length=10, max_length=100)
+    clock: dict[str, int] = Field(default_factory=dict)
+    operations: list[dict[str, Any]] = Field(default_factory=list, max_length=2000)
+
+
 class ConnectionManager:
     def __init__(self) -> None:
         self.connections: dict[int, dict[WebSocket, dict[str, Any]]] = {}
@@ -523,6 +718,7 @@ manager = ConnectionManager()
 async def lifespan(application: FastAPI):
     init_db()
     application.state.backup_task = asyncio.create_task(backup_loop())
+    application.state.sync_task = asyncio.create_task(sync_loop())
     try:
         yield
     finally:
@@ -533,9 +729,16 @@ async def lifespan(application: FastAPI):
                 await task
             except asyncio.CancelledError:
                 pass
+        sync_task = getattr(application.state, "sync_task", None)
+        if sync_task:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                pass
 
 
-app = FastAPI(title="Message Logger", version="1.0", lifespan=lifespan)
+app = FastAPI(title="Message Logger", version="2.0", lifespan=lifespan)
 
 
 def get_session_user(session_token: str | None) -> dict[str, Any] | None:
@@ -663,6 +866,81 @@ async def backup_loop() -> None:
             await asyncio.to_thread(create_backup)
         except Exception as exc:
             print(f"Backup failed: {exc}")
+
+
+def operations_after_clock(conn: sqlite3.Connection, clock: dict[str, int], limit: int = 1000) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT * FROM sync_operations ORDER BY received_at,origin_node_id,origin_seq").fetchall()
+    result = []
+    for row in rows:
+        if row["origin_seq"] <= int(clock.get(row["origin_node_id"], 0)):
+            continue
+        item = dict(row)
+        item["payload"] = json.loads(item.pop("payload_json") or "null")
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def exchange_with_peer(peer: dict[str, Any]) -> int:
+    if not SYNC_SECRET:
+        raise RuntimeError("RAYNET_SYNC_SECRET is not configured")
+    with db() as conn:
+        node_id = conn.execute("SELECT node_id FROM sync_node WHERE singleton=1").fetchone()["node_id"]
+        clock = sync_clock(conn)
+        try:
+            peer_clock = json.loads(peer.get("peer_clock_json") or "{}")
+        except json.JSONDecodeError:
+            peer_clock = {}
+        outgoing = operations_after_clock(conn, peer_clock, 1000)
+    body = json.dumps({"node_id": node_id, "clock": clock, "operations": outgoing}, separators=(",", ":")).encode()
+    request = urllib.request.Request(
+        peer["base_url"].rstrip("/") + "/api/sync/exchange",
+        data=body,
+        headers={"Content-Type": "application/json", "X-Raynet-Sync-Key": SYNC_SECRET},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read().decode())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(str(exc)) from exc
+    applied = 0
+    pending = list(result.get("operations", []))
+    with db() as conn:
+        for _ in range(3):
+            retry = []
+            for operation in pending:
+                try:
+                    applied += int(apply_sync_operation(conn, operation))
+                except (ValueError, sqlite3.IntegrityError):
+                    retry.append(operation)
+            if len(retry) == len(pending):
+                break
+            pending = retry
+        if pending:
+            raise RuntimeError(f"{len(pending)} operations could not be applied")
+        conn.execute("UPDATE sync_peers SET peer_clock_json=? WHERE id=?", (json.dumps(result.get("clock", {}), separators=(",", ":")), peer["id"]))
+    return applied
+
+
+async def sync_loop() -> None:
+    if SYNC_INTERVAL_SECONDS <= 0:
+        return
+    while True:
+        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+        if not SYNC_SECRET:
+            continue
+        with db() as conn:
+            peers = [dict(row) for row in conn.execute("SELECT * FROM sync_peers WHERE active=1").fetchall()]
+        for peer in peers:
+            try:
+                await asyncio.to_thread(exchange_with_peer, peer)
+                with db() as conn:
+                    conn.execute("UPDATE sync_peers SET last_sync_at=?,last_error='' WHERE id=?", (iso_now(), peer["id"]))
+            except Exception as exc:
+                with db() as conn:
+                    conn.execute("UPDATE sync_peers SET last_error=? WHERE id=?", (str(exc)[:500], peer["id"]))
 
 
 def create_backup() -> Path:
@@ -797,7 +1075,7 @@ def update_branding(payload: BrandingIn, user: dict[str, Any] = Depends(require_
 @app.get("/api/users")
 def users(user: dict[str, Any] = Depends(require_roles("admin"))) -> list[dict[str, Any]]:
     with db() as conn:
-        rows = conn.execute("SELECT * FROM users ORDER BY display_name COLLATE NOCASE").fetchall()
+        rows = conn.execute("SELECT * FROM users WHERE username NOT LIKE 'sync-%' ORDER BY display_name COLLATE NOCASE").fetchall()
     return [public_user(row) for row in rows]
 
 
@@ -1482,6 +1760,82 @@ def manual_backup(user: dict[str, Any] = Depends(require_roles("admin"))) -> dic
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {"ok": True, "time": iso_now(), "database": str(DB_PATH), "version": app.version}
+
+
+@app.get("/api/sync/status")
+def get_sync_status(user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+    del user
+    with db() as conn:
+        return sync_public_status(conn)
+
+
+@app.post("/api/sync/peers")
+def add_sync_peer(payload: SyncPeerIn, user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+    del user
+    base_url = payload.base_url.strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(422, "Peer URL must begin with http:// or https://")
+    with db() as conn:
+        try:
+            cur = conn.execute("INSERT INTO sync_peers(name,base_url,active,created_at) VALUES(?,?,?,?)", (payload.name.strip(), base_url, int(payload.active), iso_now()))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "That peer URL is already configured")
+        return dict(conn.execute("SELECT id,name,base_url,active,last_sync_at,last_error,created_at FROM sync_peers WHERE id=?", (cur.lastrowid,)).fetchone())
+
+
+@app.delete("/api/sync/peers/{peer_id}")
+def delete_sync_peer(peer_id: int, user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, bool]:
+    del user
+    with db() as conn:
+        deleted = conn.execute("DELETE FROM sync_peers WHERE id=?", (peer_id,)).rowcount
+    if not deleted:
+        raise HTTPException(404, "Sync peer not found")
+    return {"deleted": True}
+
+
+@app.post("/api/sync/peers/{peer_id}/sync")
+async def sync_peer_now(peer_id: int, user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+    del user
+    with db() as conn:
+        peer = conn.execute("SELECT * FROM sync_peers WHERE id=?", (peer_id,)).fetchone()
+    if not peer:
+        raise HTTPException(404, "Sync peer not found")
+    try:
+        applied = await asyncio.to_thread(exchange_with_peer, dict(peer))
+    except RuntimeError as exc:
+        with db() as conn:
+            conn.execute("UPDATE sync_peers SET last_error=? WHERE id=?", (str(exc)[:500], peer_id))
+        raise HTTPException(502, str(exc))
+    with db() as conn:
+        conn.execute("UPDATE sync_peers SET last_sync_at=?,last_error='' WHERE id=?", (iso_now(), peer_id))
+    return {"synchronised": True, "operations_applied": applied}
+
+
+@app.post("/api/sync/exchange")
+def sync_exchange(payload: SyncExchangeIn, request: Request) -> dict[str, Any]:
+    supplied = request.headers.get("X-Raynet-Sync-Key", "")
+    if not SYNC_SECRET or not secrets.compare_digest(supplied, SYNC_SECRET):
+        raise HTTPException(401, "Invalid synchronisation key")
+    with db() as conn:
+        local_node = conn.execute("SELECT node_id FROM sync_node WHERE singleton=1").fetchone()["node_id"]
+        if payload.node_id == local_node:
+            raise HTTPException(409, "A node cannot synchronise with itself")
+        pending = list(payload.operations)
+        applied = 0
+        for _ in range(3):
+            retry = []
+            for operation in pending:
+                try:
+                    applied += int(apply_sync_operation(conn, operation))
+                except (KeyError, TypeError, ValueError, sqlite3.IntegrityError):
+                    retry.append(operation)
+            if len(retry) == len(pending):
+                break
+            pending = retry
+        if pending:
+            raise HTTPException(409, f"{len(pending)} operations depend on records that have not arrived")
+        outgoing = operations_after_clock(conn, payload.clock, 1000)
+        return {"node_id": local_node, "clock": sync_clock(conn), "operations": outgoing, "operations_applied": applied}
 
 
 @app.websocket("/ws/events/{event_id}")
