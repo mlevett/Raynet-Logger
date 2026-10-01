@@ -10,6 +10,9 @@ services:
       RAYNET_TIMEZONE: "Europe/London"
       RAYNET_BACKUP_INTERVAL_SECONDS: "300"
       RAYNET_BACKUP_RETENTION: "48"
+      RAYNET_NODE_NAME: "Field node 1"
+      RAYNET_SYNC_SECRET: "${RAYNET_SYNC_SECRET:-}"
+      RAYNET_SYNC_INTERVAL_SECONDS: "30"
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups

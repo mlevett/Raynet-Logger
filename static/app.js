@@ -333,6 +333,7 @@ function showTab(tab) {
     loadUsers();
     loadControlCallsigns();
     loadAdminEvents();
+    loadSyncStatus();
   }
 }
 
@@ -1189,6 +1190,46 @@ $('#admin-event-rows').addEventListener('click', async event => {
   } catch (error) { toast(error.message, 'error'); }
 });
 
+async function loadSyncStatus() {
+  if (!roleAtLeast('admin')) return;
+  try {
+    const status = await api('/api/sync/status');
+    const operationCount = Object.values(status.clock || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+    $('#sync-node-summary').innerHTML = `<span><strong>Node</strong> ${esc(status.node_name)}</span><span><strong>ID</strong> ${esc(status.node_id.slice(0, 12))}</span><span><strong>Journal</strong> ${operationCount} operations</span><span><strong>Sync</strong> ${status.enabled ? `Every ${status.interval_seconds}s` : 'Disabled — set RAYNET_SYNC_SECRET'}</span>`;
+    $('#sync-peer-rows').innerHTML = status.peers.length ? status.peers.map(peer => `
+      <tr data-peer-id="${peer.id}"><td><strong>${esc(peer.name)}</strong></td><td>${esc(peer.base_url)}</td><td>${peer.last_sync_at ? esc(formatLocal(peer.last_sync_at, {dateStyle:'medium', timeStyle:'medium'})) : 'Never'}</td><td>${peer.last_error ? `<span class="status overdue" title="${esc(peer.last_error)}">Error</span>` : (peer.active ? 'Active' : 'Paused')}</td><td><div class="row-actions"><button data-action="sync-peer" ${status.enabled ? '' : 'disabled'}>Sync now</button><button data-action="remove-peer">Remove</button></div></td></tr>`).join('') : '<tr><td colspan="5" class="muted">No hub or field peers configured.</td></tr>';
+  } catch (error) { toast(error.message, 'error'); }
+}
+
+$('#add-sync-peer').addEventListener('click', async () => {
+  const result = await formDialog('Add synchronisation peer', `
+    <label>Node name<input id="dlg-peer-name" required maxlength="100" placeholder="e.g. County hub"></label>
+    <label>Node address<input id="dlg-peer-url" type="url" required placeholder="https://hub.example.org/logger"></label>
+    <p class="muted">Both nodes must use the same RAYNET_SYNC_SECRET. HTTPS or a trusted private network/VPN is strongly recommended.</p>
+  `, 'Add peer', () => ({name: $('#dlg-peer-name').value, base_url: $('#dlg-peer-url').value, active: true}));
+  if (!result) return;
+  try { await api('/api/sync/peers', {method:'POST', body:JSON.stringify(result)}); await loadSyncStatus(); toast('Synchronisation peer added.'); }
+  catch (error) { toast(error.message, 'error'); }
+});
+
+$('#sync-peer-rows').addEventListener('click', async event => {
+  const button = event.target.closest('[data-action]');
+  if (!button) return;
+  const peerId = Number(button.closest('tr').dataset.peerId);
+  try {
+    if (button.dataset.action === 'sync-peer') {
+      button.disabled = true;
+      button.textContent = 'Syncing…';
+      const result = await api(`/api/sync/peers/${peerId}/sync`, {method:'POST'});
+      toast(`Synchronisation complete; ${result.operations_applied} incoming operations applied.`);
+    } else if (button.dataset.action === 'remove-peer') {
+      if (!await confirmDialog('Remove synchronisation peer?', '<p>The local journal and operational records will be kept. You can add this peer again later.</p>', 'Remove peer')) return;
+      await api(`/api/sync/peers/${peerId}`, {method:'DELETE'});
+    }
+    await loadSyncStatus();
+  } catch (error) { toast(error.message, 'error'); await loadSyncStatus(); }
+});
+
 async function newEvent() {
   state.controlCallsigns = await api('/api/control-callsigns');
   const details = await formDialog('Create event · 1 of 2', `
@@ -1409,7 +1450,7 @@ $('#about-button').addEventListener('click', async () => {
       <img src="${appUrl('static/default-brand-logo.png')}" alt="" class="about-logo">
       <p><strong>Message Logger</strong> is an operational message, operator and welfare-check logging application for RAYNET deployments.</p>
       <dl>
-        <div><dt>Version</dt><dd>${esc(state.bootstrap?.version || '1.0')}</dd></div>
+        <div><dt>Version</dt><dd>${esc(state.bootstrap?.version || '2.0')}</dd></div>
         <div><dt>Author</dt><dd>Mathew Levett (M0NFZ)</dd></div>
         <div><dt>Licence</dt><dd>GNU AGPLv3 or later</dd></div>
       </dl>
@@ -1568,6 +1609,6 @@ $('#modal-form').addEventListener('submit', event => {
   }
 });
 
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register(appUrl('service-worker.js?v=73'), { updateViaCache: 'none' }).catch(() => {}));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register(appUrl('service-worker.js?v=74'), { updateViaCache: 'none' }).catch(() => {}));
 
 boot().catch(error => toast(error.message, 'error'));
