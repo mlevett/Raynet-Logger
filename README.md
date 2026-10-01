@@ -1,6 +1,6 @@
 # RAYNET Message Logger
 
-**Version 2.0 — distributed-sync development branch**
+**Version 2.0 — distributed operations testing release**
 
 Created by **Mathew Levett (M0NFZ)** for South East Hampshire RAYNET.
 
@@ -8,7 +8,7 @@ This release is ready for user testing, but should be evaluated on exercises bef
 
 A self-hosted, installable web application for RAYNET message handling and operator welfare checks. It runs in a browser, so the same build works on Windows, macOS, Linux, iPadOS and Android. Multiple operators can use one event at the same time over a LAN, Wi-Fi hotspot or VPN.
 
-Version 2 adds an offline-first distributed journal. Each installation remains usable during an outage, then exchanges missing event, station and message operations with configured hub or field peers when connectivity returns. Version 1.0 remains the stable testing release on the `main` branch and `v1.0` tag.
+Version 2 adds an offline-first distributed journal. Each installation remains usable during an outage, then exchanges missing event, station and message operations with configured hub or field peers when connectivity returns. The earlier version 1.0 release remains available from the `v1.0` tag.
 
 ## Version 2 distributed operation
 
@@ -21,7 +21,7 @@ Version 2 adds an offline-first distributed journal. Each installation remains u
 
 To enable synchronisation, configure the same strong random `RAYNET_SYNC_SECRET` on nodes that are allowed to trust each other, give each node a descriptive `RAYNET_NODE_NAME`, restart the application, then add peer URLs under **Administration → Node synchronisation**. Use HTTPS, a VPN or a physically trusted private network; the shared secret authenticates nodes but plain HTTP does not encrypt operational records.
 
-## What version 1.0 includes
+## Core features
 
 - Event-based logs instead of destructive workbook resets
 - Live multi-user synchronisation using WebSockets
@@ -63,7 +63,11 @@ Other devices on the same network can connect to `http://SERVER-IP:8080`.
 
 ## Downloading a test copy
 
-Download the stable [version 1.0 source ZIP](https://github.com/mlevett/Raynet-Logger/archive/refs/tags/v1.0.zip), or use **Code → Download ZIP** on GitHub for the current development version. Extract it before running either startup script.
+Download the [version 2.0 source ZIP](https://github.com/mlevett/Raynet-Logger/archive/refs/tags/v2.0.zip), or use **Code → Download ZIP** on GitHub for the current `main` branch. Extract it before running either startup script. Version 1.0 remains available from the [`v1.0` tag](https://github.com/mlevett/Raynet-Logger/releases/tag/v1.0).
+
+## Upgrading from version 1.0
+
+Back up `data/raynet_logger.db`, then replace the application files and restart normally. Version 2 automatically adds node identities, global record identifiers and the synchronisation journal without removing existing events or messages. Synchronisation remains disabled until `RAYNET_SYNC_SECRET` is configured, so a version 2 installation can continue operating as a standalone logger.
 
 ## Windows without Docker
 
