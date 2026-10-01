@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -18,6 +19,33 @@ def make_client(tmp_path: Path):
     import app
     importlib.reload(app)
     return TestClient(app.app)
+
+
+def test_frontend_assets_support_subfolder_mount(tmp_path):
+    os.environ["RAYNET_DB_PATH"] = str(tmp_path / "test.db")
+    os.environ["RAYNET_DATA_DIR"] = str(tmp_path)
+    os.environ["RAYNET_BACKUP_DIR"] = str(tmp_path / "backups")
+    os.environ["RAYNET_BACKUP_INTERVAL_SECONDS"] = "0"
+    import app
+    importlib.reload(app)
+
+    parent = FastAPI()
+    parent.mount("/logger", app.app)
+    with TestClient(parent) as client:
+        page = client.get("/logger/")
+        assert page.status_code == 200
+        assert 'src="static/app.js?v=86"' in page.text
+        assert 'href="static/styles.css?v=82"' in page.text
+        assert 'href="manifest.webmanifest"' in page.text
+        assert client.get("/logger/static/app.js?v=86").status_code == 200
+        assert client.get("/logger/static/styles.css?v=82").status_code == 200
+        manifest = client.get("/logger/manifest.webmanifest").json()
+        assert manifest["start_url"] == "./"
+        assert manifest["scope"] == "./"
+        assert manifest["icons"][0]["src"] == "static/icon.svg"
+        worker = client.get("/logger/service-worker.js?v=73")
+        assert worker.status_code == 200
+        assert "self.registration.scope" in worker.text
 
 
 def test_operational_flow(tmp_path):

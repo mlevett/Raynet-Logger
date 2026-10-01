@@ -3,6 +3,13 @@
 
 'use strict';
 
+// Resolve every application URL from this script's deployed location. This keeps
+// root installs and reverse-proxy subfolder installs (for example /logger/) equal.
+const APP_SCRIPT_URL = new URL(document.currentScript?.src || document.querySelector('script[src*="static/app.js"]')?.src || location.href);
+const APP_BASE_URL = new URL('../', APP_SCRIPT_URL);
+const appUrl = path => new URL(String(path).replace(/^\/+/, ''), APP_BASE_URL).toString();
+const assetUrl = value => String(value || '').startsWith('data:') ? value : appUrl(value || 'static/default-brand-logo.png');
+
 const SOUND_PREF_KEY = 'raynet-alert-sound-v2';
 const THEME_PREF_KEY = 'raynet-theme-v1';
 const savedTheme = localStorage.getItem(THEME_PREF_KEY);
@@ -53,7 +60,7 @@ function toast(message, type = '') {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(appUrl(path), {
     credentials: 'same-origin',
     headers: {'Content-Type': 'application/json', ...(options.headers || {})},
     ...options,
@@ -120,7 +127,7 @@ function setAuthMode(needsSetup) {
   $('#display-name-row').classList.toggle('hidden', !needsSetup);
   $('#callsign-row').classList.toggle('hidden', !needsSetup);
   const branding = state.bootstrap.branding || {};
-  $('#auth-brand-logo').src = branding.logo_data_url || '/static/default-brand-logo.png';
+  $('#auth-brand-logo').src = assetUrl(branding.logo_data_url);
   $('#auth-brand-tagline').textContent = branding.tagline || 'South East Hampshire Raynet';
   $('#auth-title').textContent = needsSetup ? 'Create the first administrator' : (branding.org_name || state.bootstrap.org_name);
   $('#auth-copy').textContent = needsSetup
@@ -149,7 +156,7 @@ async function enterApp(meResult = null) {
   if (!meResult) meResult = await api('/api/me');
   state.user = meResult.user;
   state.timezone = meResult.timezone;
-  applyBranding(meResult.branding || {org_name: meResult.org_name, tagline: 'South East Hampshire Raynet', logo_data_url: '/static/default-brand-logo.png'});
+  applyBranding(meResult.branding || {org_name: meResult.org_name, tagline: 'South East Hampshire Raynet', logo_data_url: 'static/default-brand-logo.png'});
   $('#user-button').innerHTML = `<span>${esc(state.user.display_name)}</span><span class="menu-chevron" aria-hidden="true">▾</span>`;
   $('#auth-screen').classList.add('hidden');
   $('#app-shell').classList.remove('hidden');
@@ -336,7 +343,7 @@ function applyBranding(branding) {
   $('#org-name').textContent = branding.org_name || 'Message Logger';
   $('#org-tagline').textContent = branding.tagline || '';
   $('#org-tagline').classList.toggle('hidden', !branding.tagline);
-  $('#brand-logo').src = branding.logo_data_url || '/static/default-brand-logo.png';
+  $('#brand-logo').src = assetUrl(branding.logo_data_url);
 }
 
 function setDirection(value) {
@@ -1020,7 +1027,7 @@ async function loadBranding() {
     $('#branding-name').value = branding.org_name;
     $('#branding-tagline').value = branding.tagline;
     $('#branding-logo-file').value = '';
-    $('#branding-logo-preview').src = branding.logo_data_url || '/static/default-brand-logo.png';
+    $('#branding-logo-preview').src = assetUrl(branding.logo_data_url);
   } catch (error) { toast(error.message, 'error'); }
 }
 
@@ -1043,7 +1050,7 @@ $('#branding-logo-file').addEventListener('change', event => {
 $('#branding-remove-logo').addEventListener('click', () => {
   state.pendingLogoDataUrl = '';
   $('#branding-logo-file').value = '';
-  $('#branding-logo-preview').src = '/static/default-brand-logo.png';
+  $('#branding-logo-preview').src = appUrl('static/default-brand-logo.png');
 });
 
 $('#branding-form').addEventListener('submit', async event => {
@@ -1399,7 +1406,7 @@ $('#about-button').addEventListener('click', async () => {
   $('#modal-cancel').hidden = true;
   await confirmDialog('About Message Logger', `
     <div class="about-details">
-      <img src="/static/default-brand-logo.png" alt="" class="about-logo">
+      <img src="${appUrl('static/default-brand-logo.png')}" alt="" class="about-logo">
       <p><strong>Message Logger</strong> is an operational message, operator and welfare-check logging application for RAYNET deployments.</p>
       <dl>
         <div><dt>Version</dt><dd>${esc(state.bootstrap?.version || '1.0')}</dd></div>
@@ -1446,7 +1453,7 @@ $('#export-form').addEventListener('submit', async event => {
   button.disabled = true;
   button.textContent = 'Preparing…';
   try {
-    const response = await fetch(`/api/events/${state.event.id}/export/${format}?sections=${encodeURIComponent(sections.join(','))}`);
+    const response = await fetch(appUrl(`api/events/${state.event.id}/export/${format}?sections=${encodeURIComponent(sections.join(','))}`));
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.detail || `Export failed (${response.status})`);
@@ -1474,7 +1481,9 @@ updateExportSummary();
 function connectWebSocket() {
   if (!state.event) return;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${protocol}://${location.host}/ws/events/${state.event.id}`);
+  const socketUrl = new URL(`ws/events/${state.event.id}`, APP_BASE_URL);
+  socketUrl.protocol = protocol;
+  const ws = new WebSocket(socketUrl);
   state.websocket = ws;
   ws.addEventListener('open', () => {
     clearInterval(ws._ping);
@@ -1559,6 +1568,6 @@ $('#modal-form').addEventListener('submit', event => {
   }
 });
 
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js?v=72', { updateViaCache: 'none' }).catch(() => {}));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register(appUrl('service-worker.js?v=73'), { updateViaCache: 'none' }).catch(() => {}));
 
 boot().catch(error => toast(error.message, 'error'));

@@ -6,9 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#123b5d">
   <title>Message Logger</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/styles.css?v=82">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="static/styles.css?v=82">
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -16,7 +16,7 @@
   <section id="auth-screen" class="auth-shell hidden">
     <div class="auth-card">
       <div class="brand-lockup">
-        <img id="auth-brand-logo" src="/static/default-brand-logo.png" alt="" class="brand-icon">
+        <img id="auth-brand-logo" src="static/default-brand-logo.png" alt="" class="brand-icon">
         <div><p id="auth-brand-tagline" class="eyebrow">South East Hampshire Raynet</p><h1 id="auth-title">Message Logger</h1></div>
       </div>
       <p id="auth-copy" class="muted">Sign in to an existing logger.</p>
@@ -34,7 +34,7 @@
   <div id="app-shell" class="app-shell hidden">
     <header class="topbar">
       <div class="brand-lockup compact">
-        <img id="brand-logo" src="/static/default-brand-logo.png" alt="" class="brand-icon">
+        <img id="brand-logo" src="static/default-brand-logo.png" alt="" class="brand-icon">
         <div><p id="org-tagline" class="eyebrow">South East Hampshire Raynet</p><h1 id="org-name">Message Logger</h1></div>
       </div>
       <div class="topbar-controls">
@@ -150,7 +150,7 @@
         <div class="section-head"><div><p class="eyebrow">Appearance</p><h2>Branding</h2></div></div>
         <form id="branding-form" class="branding-settings">
           <div class="branding-fields"><label>Application name<input id="branding-name" required maxlength="100"></label><label>Header strapline<input id="branding-tagline" maxlength="120"></label><label>Custom logo<input id="branding-logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><span class="field-hint">PNG, JPEG, WebP or GIF; maximum 1 MB.</span></label></div>
-          <div class="branding-preview"><img id="branding-logo-preview" src="/static/default-brand-logo.png" alt="Current logo preview"><button id="branding-remove-logo" type="button" class="secondary">Use default logo</button><button type="submit" class="primary">Save branding</button></div>
+          <div class="branding-preview"><img id="branding-logo-preview" src="static/default-brand-logo.png" alt="Current logo preview"><button id="branding-remove-logo" type="button" class="secondary">Use default logo</button><button type="submit" class="primary">Save branding</button></div>
         </form>
         <div class="section-head"><div><p class="eyebrow">System access</p><h2>Users and roles</h2></div><button id="add-user-button" class="primary">Add user</button></div>
         <div class="role-key"><span><strong>Admin</strong> everything</span><span><strong>Controller</strong> events, stations and corrections</span><span><strong>Operator</strong> log traffic and mark heard</span><span><strong>Viewer</strong> read only</span></div>
@@ -165,6 +165,6 @@
 
   <dialog id="modal"><form method="dialog" id="modal-form"><div id="modal-body"></div><div class="dialog-actions"><button type="button" id="modal-cancel" class="secondary">Cancel</button><button value="confirm" id="modal-confirm" class="primary">Confirm</button></div></form></dialog>
   <div id="user-menu" class="popover hidden" role="menu"><button id="menu-administration-button" class="permission-admin" role="menuitem">⚙ Administration</button><button id="about-button" role="menuitem">About</button><button id="sign-out-button" role="menuitem">Sign out</button></div>
-  <script src="/static/app.js?v=85" defer></script>
+  <script src="static/app.js?v=86" defer></script>
 </body>
 </html>
